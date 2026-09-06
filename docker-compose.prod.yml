@@ -1,0 +1,50 @@
+# PRODUCTION compose (AG-18): NO mock backend, secrets from the environment, and
+# the gateway refuses to start without safe identity/mTLS/macaroon config.
+# Use the base docker-compose.yml only for local dev (it includes the mock server).
+services:
+  mcp-firewall:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - GATEWAY_ENV=prod
+      - GATEWAY_JWT_ALG=RS256
+      - GATEWAY_JWT_PUBLIC_KEY=${GATEWAY_JWT_PUBLIC_KEY}      # PEM from your IdP
+      - GATEWAY_JWT_AUDIENCE=${GATEWAY_JWT_AUDIENCE}
+      - GATEWAY_JWT_ISSUER=${GATEWAY_JWT_ISSUER}
+      - MACAROON_ROOT_KEY=${MACAROON_ROOT_KEY}                # >=32 bytes, from secrets mgr
+      - UPSTREAM_MCP_URL=${UPSTREAM_MCP_URL}
+      - UPSTREAM_TLS_VERIFY=true
+      - UPSTREAM_CA_BUNDLE=/run/secrets/upstream_ca.pem
+      - CLIENT_CERT=/run/secrets/client.crt
+      - CLIENT_KEY=/run/secrets/client.key                    # mounted secret, NOT in the image
+      - REDIS_URL=${REDIS_URL}                                 # use rediss:// + AUTH in prod
+      - DATABASE_URL=${DATABASE_URL}                           # Postgres for a scalable fleet
+      - SCHEMA_LOCK_ENFORCE=true
+      - TAINT_MODE=${TAINT_MODE:-coarse}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+    secrets:
+      - upstream_ca.pem
+      - client.crt
+      - client.key
+    restart: always
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--save", ""]
+    restart: always
+
+secrets:
+  upstream_ca.pem:
+    file: ./secrets/upstream_ca.pem
+  client.crt:
+    file: ./secrets/client.crt
+  client.key:
+    file: ./secrets/client.key

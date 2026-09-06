@@ -1,0 +1,17 @@
+fastapi>=0.104.1
+uvicorn>=0.24.0
+httpx>=0.25.1
+pydantic>=2.4.2
+PyJWT[crypto]>=2.8.0
+cryptography>=41.0.0
+redis>=5.0.1
+sqlalchemy>=2.0.23
+aiosqlite>=0.19.0
+PyYAML>=6.0
+presidio-analyzer>=2.2.35
+prometheus-fastapi-instrumentator>=6.1.0
+# --- dev/test only ---
+pytest>=7.4.3
+pytest-asyncio>=0.23.0
+fakeredis>=2.20.0
+lupa>=2.0

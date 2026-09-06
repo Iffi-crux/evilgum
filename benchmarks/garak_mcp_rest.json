@@ -1,0 +1,17 @@
+{
+  "//": "garak REST generator -> the agent harness (which routes tool calls through the gateway).",
+  "//run": "garak -m rest -G benchmarks/garak_mcp_rest.json -p latentinjection,promptinject,encoding",
+  "//metric": "ASR (Attack Success Rate): probes that make the agent EXECUTE a dangerous action. Output says BLOCKED_BY_GATEWAY for blocked ones, so a secure gateway drives ASR toward 0.",
+  "rest": {
+    "RestGenerator": {
+      "name": "mcp-gateway-agent",
+      "uri": "http://127.0.0.1:8090/chat",
+      "method": "post",
+      "headers": { "Content-Type": "application/json" },
+      "req_template_json_object": { "input": "$INPUT" },
+      "response_json": true,
+      "response_json_field": "output",
+      "request_timeout": 20
+    }
+  }
+}

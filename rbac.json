@@ -1,0 +1,7 @@
+{
+    "roles": {
+        "admin_agent": ["*"],
+        "hr_agent": ["read_employee_data", "send_email"],
+        "demo-agent-session-001": ["read_file", "execute_bash"]
+    }
+}

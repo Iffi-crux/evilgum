@@ -1,0 +1,4 @@
+{
+  "_comment": "AG-07: pin real schema hashes here. To generate on first run, start once with SCHEMA_LOCK_LEARN=1 to auto-pin discovered tools, review, then remove the env var so enforcement is strict. No 'dummy_hash' values are honored anymore.",
+  "tools": {}
+}

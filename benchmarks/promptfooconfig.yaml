@@ -1,0 +1,37 @@
+# promptfoo external benchmark — sends OWASP-style attack payloads through the
+# gateway's /rpc endpoint and asserts each one is BLOCKED. Deterministic (no LLM
+# grader needed). Run:  npx promptfoo@latest eval -c promptfooconfig.yaml
+# (requires Node.js). Then:  npx promptfoo@latest view
+description: MCP Gateway — OWASP attack payloads must be blocked
+
+prompts:
+  - "{{payload}}"
+
+providers:
+  - id: https
+    label: mcp-gateway
+    config:
+      url: http://127.0.0.1:8080/rpc
+      method: POST
+      headers:
+        Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZ2VudC0xIiwic2lkIjoiYmVuY2giLCJzY29wZSI6IiIsImF1ZCI6Im1jcC1nYXRld2F5IiwiaXNzIjoibWNwLWdhdGV3YXktaWRwIiwiZXhwIjo0MTAyNDQ0ODAwfQ.157THho5NUhKYHu8I7YPFkSQqdVzxLKvel6i1SF8ASw"
+        Content-Type: application/json
+      body:
+        jsonrpc: "2.0"
+        id: 1
+        method: "tools/call"
+        params:
+          name: "{{tool}}"
+          arguments:
+            cmd: "{{payload}}"
+            q: "{{payload}}"
+            url: "{{payload}}"
+            path: "{{payload}}"
+      transformResponse: 'json && json.error ? "BLOCKED" : "ALLOWED"'
+
+tests: file://attacks.csv
+
+defaultTest:
+  assert:
+    - type: equals
+      value: "BLOCKED"

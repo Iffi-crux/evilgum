@@ -1,0 +1,66 @@
+# EvilGum — high-availability topology.
+#
+# Multiple stateless gateway replicas behind an nginx load balancer, sharing one
+# Redis for taint + rate-limit state. Any replica can serve any request; a dead
+# replica is pulled from rotation by its /readyz probe.
+#
+#   docker compose -f docker-compose.ha.yml up -d --scale gateway=3
+#
+# Scale `gateway` freely — the replicas hold no per-request state in memory.
+# The one stateful piece is the audit log (see docs/HA_AND_OBSERVABILITY.md):
+# here every replica writes to a shared volume; in production forward it to your
+# SIEM instead.
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  gateway:
+    build: .
+    environment:
+      GATEWAY_ENV: prod
+      REDIS_URL: redis://redis:6379/0
+      GATEWAY_JWT_ALG: RS256
+      # Provide the IdP public key or JWKS URL via your secret manager:
+      # GATEWAY_JWT_PUBLIC_KEY / GATEWAY_JWT_JWKS_URL
+      GATEWAY_ENFORCEMENT_MODE: ${GATEWAY_ENFORCEMENT_MODE:-shadow}   # start in shadow, flip to enforce
+      GATEWAY_METRICS_ENABLED: "true"
+      AUDIT_LOG_PATH: /var/log/evilgum/audit.log.jsonl
+      UPSTREAM_URL: ${UPSTREAM_URL:-https://mock-mcp-backend:9090/rpc}
+    volumes:
+      - audit-log:/var/log/evilgum
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/readyz').status==200 else 1)"]
+      interval: 10s
+      timeout: 4s
+      retries: 3
+      start_period: 15s
+    expose:
+      - "8080"
+    restart: unless-stopped
+
+  lb:
+    image: nginx:1.27-alpine
+    ports:
+      - "8443:8443"
+      - "8080:8080"
+    volumes:
+      - ./deploy/nginx-ha.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  audit-log:

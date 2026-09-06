@@ -1,0 +1,27 @@
+# nuclei custom template — confirms the gateway BLOCKS an injection payload.
+# A "match" here = defense worked (the gateway returned its intercept fault).
+# Run:  nuclei -u http://127.0.0.1:8080 -t mcp-injection.yaml
+id: mcp-gateway-blocks-injection
+info:
+  name: MCP Gateway blocks command injection
+  author: benchmark-kit
+  severity: info
+  description: Sends rm -rf / as a tool argument; a match means the gateway intercepted it.
+http:
+  - raw:
+      - |
+        POST /rpc HTTP/1.1
+        Host: {{Hostname}}
+        Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZ2VudC0xIiwic2lkIjoiYmVuY2giLCJzY29wZSI6IiIsImF1ZCI6Im1jcC1nYXRld2F5IiwiaXNzIjoibWNwLWdhdGV3YXktaWRwIiwiZXhwIjo0MTAyNDQ0ODAwfQ.157THho5NUhKYHu8I7YPFkSQqdVzxLKvel6i1SF8ASw
+        Content-Type: application/json
+
+        {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"execute_bash","arguments":{"cmd":"rm -rf /"}}}
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "ANTI_GRAVITY_INTERCEPT"
+      - type: status
+        status:
+          - 200

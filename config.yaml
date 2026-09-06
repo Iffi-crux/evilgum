@@ -1,0 +1,30 @@
+# SINGLE SOURCE OF TRUTH for gateway policy (AG-10).
+# The Python engine (interceptor/*) is canonical. The Rust tree is archived under
+# archive/rust-legacy/ and must not be run until it is ported to read THIS file.
+gateway:
+  host: "0.0.0.0"
+  port: 8080
+
+upstream_mcp:
+  url: "https://mock-mcp-backend:9090/rpc"
+
+security:
+  enforce_schema_lock: true    # AG-07: on by default; override via SCHEMA_LOCK_ENFORCE
+
+# Tools are classified by CAPABILITY, not by a hand-maintained source/sink list.
+# Any tool with net_egress / shell / fs_write / state_write is a SINK for
+# information-flow control. A tool NOT listed here is treated as an unclassified
+# sink (default-deny) so it can never be a free exfiltration channel (AG-05).
+tools:
+  capabilities:
+    read_file:          [source]
+    read_email:         [source]
+    db_read:            [source]
+    fetch_url:          [source, net_egress]      # AG-05: egress, NOT a safe source
+    calculate_math:     [transform]
+    format_json:        [transform]
+    regex_match:        [transform]
+    execute_bash:       [shell, net_egress]
+    http_post:          [net_egress]
+    send_slack_message: [net_egress, state_write]
+    db_write:           [state_write]

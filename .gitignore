@@ -1,0 +1,39 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+venv/
+env/
+.venv/
+
+# --- SECRETS & CERTS — never commit these ---
+.env
+.env.*
+certs/
+*.key
+*.pem
+*.crt
+benchmarks/TOKEN.txt
+
+# --- runtime state / data ---
+data/
+*.db
+*.sqlite
+*.log
+*.jsonl
+audit.log.jsonl
+
+# --- local dev / private / junk (do NOT open-source) ---
+_v5_backup/
+_to_delete/
+archive/
+"MCP INTERCEPTOR"/
+mcp-lock.json          # generated per-deployment; ship an example instead
+
+# --- OS ---
+.DS_Store
+Thumbs.db
