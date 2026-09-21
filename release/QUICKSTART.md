@@ -4,6 +4,22 @@ This developer-beta bundle contains the source archive, wheel, dependency locks 
 
 Supported route: Linux amd64 with Python 3.11 and Docker Engine. Internet access is needed for locked dependencies and container bases. Initial downloads include spaCy/DLP and can take several minutes. Windows users may run the Linux instructions inside Ubuntu WSL with Docker available there; native Windows/macOS installation is not claimed.
 
+## Prebuilt container route
+
+When the release evidence confirms anonymous registry access, use the prebuilt candidate. This installs only the small demo driver dependencies on your machine; DLP stays inside the container.
+
+```sh
+python3.11 -m venv .venv
+. .venv/bin/activate
+python -m pip install --require-hashes -r locks/demo-py311-linux.lock
+docker pull ghcr.io/iffi-crux/evilgum:0.1.0rc1
+EVILGUM_TEST_IMAGE=ghcr.io/iffi-crux/evilgum:0.1.0rc1 python scripts/verify_phase1.py
+```
+
+Compare the pulled digest with the published container-digests.json. If registry access is unavailable, use the self-contained source-build route below. A container tar asset, when provided, can be verified with SHA256SUMS.txt and loaded using docker load -i FILE.tar.gz.
+
+## Build from source
+
 From the extracted bundle directory:
 
 ```sh

@@ -40,8 +40,9 @@ jobs:
       - name: Container and recovery verification
         run: |
           docker build --platform linux/amd64 -t evilgum:0.1.0rc1 .
-          EVILGUM_TEST_IMAGE=evilgum:0.1.0rc1 /tmp/evilgum-test/bin/python scripts/verify_phase1.py
-          cp .phase1-runtime/*/report.json dist/container-recovery.json
+          python -m zipfile -e dist/evilgum-0.1.0rc1-quickstart.zip /tmp/evilgum-quickstart
+          EVILGUM_TEST_IMAGE=evilgum:0.1.0rc1 /tmp/evilgum-test/bin/python /tmp/evilgum-quickstart/evilgum-0.1.0rc1-quickstart/scripts/verify_phase1.py
+          cp /tmp/evilgum-quickstart/evilgum-0.1.0rc1-quickstart/.phase1-runtime/*/report.json dist/container-recovery.json
           docker run --rm --user 0 -v "$PWD/scripts:/scripts:ro" -v "$PWD/dist:/out" evilgum:0.1.0rc1 python /scripts/dependency_inventory.py /out/python-dependencies.json
       - name: Publish verified candidate container
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
