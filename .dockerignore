@@ -1,0 +1,15 @@
+.git
+.env*
+secrets
+data
+__pycache__
+**/__pycache__
+*.zip
+*.pem
+*.key
+.pytest_cache
+.phase1-runtime
+
+build
+.release-work
+*.egg-info

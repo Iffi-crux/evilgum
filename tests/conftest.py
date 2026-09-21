@@ -14,7 +14,7 @@ from interceptor.auth import JwtVerifier
 from interceptor.taint import TaintEngine
 from interceptor.rbac import RbacEngine
 from interceptor.rate_limiter import RedisTokenBucketRateLimiter
-from interceptor.schema_lock import SchemaLock
+from interceptor.schema_lock import SchemaLock, compute_hash
 from interceptor.egress_guard import EgressGuard
 from mesh.semantic_waf import SemanticWaf, PiiSpan
 from mesh.sidecar import MacaroonEvaluator
@@ -103,9 +103,19 @@ def build(cfg, rsa_keys):
         r2 = fakeredis.FakeRedis(decode_responses=True)
         roles = roles or {}
 
-        async def loader(agent_id):
-            return roles.get(agent_id)
+        async def loader(tenant_id, agent_id):
+            return roles.get((tenant_id, agent_id), roles.get(agent_id) if tenant_id == "default" else None)
 
+        # Unrelated layer tests start after an approved discovery handshake.
+        # Explicit schema_locks (including {}) always starts unverified.
+        known = [{"name": name, "description": "Test tool", "inputSchema": {}}
+                 for name in c.capabilities]
+        lock = SchemaLock({x["name"]: compute_hash(x) for x in known}
+                          if schema_locks is None and enforce_lock else (schema_locks or {}),
+                          enforce=enforce_lock, learn=learn)
+        if schema_locks is None and enforce_lock:
+            for tool in known:
+                lock.check(tool)
         up = upstream or FakeUpstream({"jsonrpc": "2.0", "id": 1, "result": {}})
         deps = Deps(
             verifier=JwtVerifier(c),
@@ -113,7 +123,7 @@ def build(cfg, rsa_keys):
             rbac=rbac or RbacEngine(loader, cache_ttl=0.0),
             rate_limiter=rate_limiter or RedisTokenBucketRateLimiter(rate_capacity, rate_refill, redis_client=r2),
             waf=SemanticWaf(analyzer=pii, max_bytes=c.dlp_max_bytes, dlp_enabled=c.dlp_egress_enabled),
-            schema_lock=SchemaLock(schema_locks or {}, enforce=enforce_lock, learn=learn),
+            schema_lock=lock,
             egress=EgressGuard(),
             http_client=up,
             macaroon=MacaroonEvaluator(macaroon_root),

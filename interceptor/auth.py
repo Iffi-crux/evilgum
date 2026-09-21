@@ -53,11 +53,13 @@ class Principal:
     @property
     def scope_id(self) -> str:
         """Tenant-scoped key for shared state (taint, rate-limit) so tenants never collide."""
-        return f"{self.tenant_id}:{self.session_id}"
+        import json
+        return json.dumps([self.tenant_id, self.session_id], separators=(",", ":"), ensure_ascii=True)
 
 
 class JwtVerifier:
     def __init__(self, cfg: PolicyConfig):
+        self.required_recovery_epoch = None
         self.cfg = cfg
         self.alg = cfg.jwt_alg
         self._key = self._resolve_key(cfg)
@@ -111,6 +113,8 @@ class JwtVerifier:
             raise AuthError("invalid or expired token") from e
 
         sub = payload.get("sub")
+        if self.required_recovery_epoch and payload.get("eg_epoch") != self.required_recovery_epoch:
+            raise AuthError("fresh recovery session required")
         if not sub or not isinstance(sub, str):
             raise AuthError("token missing subject")
 

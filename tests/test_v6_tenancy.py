@@ -34,7 +34,7 @@ def test_iso01_taint_does_not_bleed_across_tenants(build):
     """Tenant A taints a session; tenant B with the SAME sid still gets its
     sink call through — taint labels are tenant-scoped, so no state bleeds."""
     app, deps, up, priv = build(
-        roles={"agent-1": ["read_email", "execute_bash"]},
+        roles={("acme", "agent-1"): ["read_email", "execute_bash"], ("globex", "agent-1"): ["read_email", "execute_bash"]},
     )
     with TestClient(app) as c:
         # Tenant A: source then sink in one session -> blocked (taint sticks).
@@ -47,7 +47,7 @@ def test_iso01_taint_does_not_bleed_across_tenants(build):
         # because A's taint lives under "acme:shared-sid", not "globex:shared-sid".
         tb = make_token(priv, sub="agent-1", sid="shared-sid", tenant="globex")
         rb = call(c, tb, {**TC, "id": 3, "params": {"name": "execute_bash", "arguments": {"cmd": "x"}}})
-        assert rb.json().get("error", {}).get("code") != -32001   # B is NOT tainted
+        assert "result" in rb.json()   # B is NOT tainted
 
 
 # ---- ISO-02 · rate-limit isolation ---------------------------------------
@@ -55,7 +55,7 @@ def test_iso02_rate_limit_is_per_tenant(build):
     """Tenant A exhausts its bucket on a sid; tenant B on the SAME sid still
     has full budget."""
     app, deps, up, priv = build(
-        roles={"agent-1": ["read_file"]}, rate_capacity=2, rate_refill=0.0,
+        roles={("acme", "agent-1"): ["read_file"], ("globex", "agent-1"): ["read_file"]}, rate_capacity=2, rate_refill=0.0,
     )
     with TestClient(app) as c:
         ta = make_token(priv, sub="agent-1", sid="rl-sid", tenant="acme")
@@ -68,7 +68,7 @@ def test_iso02_rate_limit_is_per_tenant(build):
         # Tenant B, same sid, fresh bucket.
         tb = make_token(priv, sub="agent-1", sid="rl-sid", tenant="globex")
         rb = call(c, tb, {**TC, "id": 99, "params": {"name": "read_file", "arguments": {}}})
-        assert rb.json().get("error", {}).get("code") != -32005   # B has budget
+        assert "result" in rb.json()   # B has budget
 
 
 # ---- ISO-03 · back-compat -------------------------------------------------
@@ -92,7 +92,7 @@ def test_iso04_audit_records_carry_tenant(build):
             self.events.append(event)
 
     audit = MemAudit()
-    app, deps, up, priv = build(roles={"agent-1": ["read_file"]}, audit=audit)
+    app, deps, up, priv = build(roles={("acme", "agent-1"): ["read_file"]}, audit=audit)
     with TestClient(app) as c:
         tok = make_token(priv, sub="agent-1", sid="s1", tenant="acme")
         call(c, tok, {**TC, "params": {"name": "read_file", "arguments": {}}})
@@ -103,7 +103,7 @@ def test_iso04_audit_records_carry_tenant(build):
 # ---- ISO-05 · Principal.scope_id -----------------------------------------
 def test_iso05_scope_id_composes_tenant_and_session():
     p = Principal(agent_id="a", session_id="sess-9", tenant_id="acme")
-    assert p.scope_id == "acme:sess-9"
+    assert p.scope_id == '["acme","sess-9"]'
     d = Principal(agent_id="a", session_id="sess-9")   # default tenant
-    assert d.scope_id == "default:sess-9"
+    assert d.scope_id == '["default","sess-9"]'
     assert p.scope_id != d.scope_id

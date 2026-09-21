@@ -37,3 +37,12 @@ mcp-lock.json          # generated per-deployment; ship an example instead
 # --- OS ---
 .DS_Store
 Thumbs.db
+
+# Disposable Phase 1 drills contain synthetic private keys and runtime state.
+.phase1-runtime/
+
+# Release builds and disposable installation checks
+dist/
+build/
+.release-work/
+!release/*.example

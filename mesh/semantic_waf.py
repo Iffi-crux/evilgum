@@ -123,7 +123,10 @@ class PresidioAnalyzer:
     def _get(self):
         if PresidioAnalyzer._engine is None:
             from presidio_analyzer import AnalyzerEngine
-            PresidioAnalyzer._engine = AnalyzerEngine()
+            from presidio_analyzer.nlp_engine import NlpEngineProvider
+            provider = NlpEngineProvider(nlp_configuration={"nlp_engine_name": "spacy",
+                "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}]})
+            PresidioAnalyzer._engine = AnalyzerEngine(nlp_engine=provider.create_engine(), supported_languages=["en"])
         return PresidioAnalyzer._engine
 
     def find(self, text: str) -> list[PiiSpan]:
@@ -173,10 +176,11 @@ class SemanticWaf:
     ]
 
     def __init__(self, analyzer: Optional[PiiAnalyzer] = None, max_bytes: int = 10_000,
-                 dlp_enabled: bool = True):
+                 dlp_enabled: bool = True, fail_closed: bool = False):
         self.analyzer = analyzer
         self.max_bytes = max_bytes
         self.dlp_enabled = dlp_enabled
+        self.fail_closed = fail_closed
 
     # ---- INGRESS (agent -> tool): detection only, no mutation ----
     def inspect_ingress(self, arguments: Any) -> Optional[str]:
@@ -198,6 +202,9 @@ class SemanticWaf:
             return response
 
         redacted = text
+        if self.fail_closed and self.dlp_enabled and (self.analyzer is None or len(text.encode("utf-8")) > self.max_bytes):
+            return {"jsonrpc": "2.0", "id": response.get("id"), "error": {
+                "code": -32006, "message": "Response withheld: DLP unavailable or inspection limit exceeded."}}
         # 1) High-confidence injection markers: redact the match, keep the rest.
         for pat in self.INJECTION_MARKERS:
             redacted = pat.sub("[REDACTED:INJECTION]", redacted)
@@ -210,6 +217,9 @@ class SemanticWaf:
                 for sp in spans:
                     redacted = redacted[: sp.start] + f"[REDACTED:{sp.entity_type}]" + redacted[sp.end:]
             except Exception:
+                if self.fail_closed:
+                    return {"jsonrpc": "2.0", "id": response.get("id"), "error": {
+                        "code": -32006, "message": "Response withheld: DLP inspection failed."}}
                 import logging
                 logging.getLogger("gateway.waf").exception("DLP analyzer failed; passing response through un-redacted-by-NER")
 

@@ -1,0 +1,12 @@
+include LICENSE README.md pyproject.toml
+include Dockerfile docker-compose.prod.yml config.yaml
+include PHASE1-OPERATIONS.md MCP-COMPATIBILITY.md SECURITY.md CHANGELOG.md RELEASE.md
+recursive-include interceptor *.py *.yaml *.json
+recursive-include mesh *.py
+recursive-include detector *.py
+recursive-include locks *.lock *.in
+recursive-include scripts *.py
+recursive-include examples *.py
+recursive-include tests *.py
+recursive-include release *.md *.example
+recursive-exclude * __pycache__ *.pyc

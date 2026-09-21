@@ -1,0 +1,9 @@
+# Replace all values; keep real secrets outside version control.
+GATEWAY_JWT_PUBLIC_KEY="<issuer-public-PEM>"
+GATEWAY_JWT_AUDIENCE=mcp-gateway
+GATEWAY_JWT_ISSUER=https://your-issuer.example/
+MACAROON_ROOT_KEY=<generate-at-least-32-random-bytes>
+REDIS_PASSWORD=<generate-a-strong-password>
+UPSTREAM_MCP_URL=https://your-supported-upstream.example/mcp
+WEBHOOK_URL=
+# Issue JWT eg_epoch from recovery init; mount reviewed pins and TLS secret files.
