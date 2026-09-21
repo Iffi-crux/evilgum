@@ -57,7 +57,7 @@ def build_app():
     c.env = "dev"; c.jwt_alg = "HS256"; c.jwt_secret = SECRET
     c.jwt_audience = AUD; c.jwt_issuer = ISS; c.upstream_url = "http://stub/rpc"
     c.schema_lock_enforce = False
-    async def loader(a): return ROLES.get(a)
+    async def loader(tenant_id, a): return ROLES.get(a)
     deps = Deps(
         verifier=JwtVerifier(c),
         taint=TaintEngine(c, redis_client=fr.FakeRedis(decode_responses=True)),

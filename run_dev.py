@@ -35,7 +35,7 @@ class StubUpstream:
 roles = {"agent-1": ["read_file", "fetch_url"]}   # NOTE: execute_bash NOT granted
 
 
-async def loader(agent_id):
+async def loader(tenant_id, agent_id):
     return roles.get(agent_id)
 
 

@@ -1,13 +1,13 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools==80.9.0", "wheel==0.45.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "evilgum"
-version = "0.1.0"
-description = "EvilGum — an L7 JSON-RPC security gateway (firewall) for the Model Context Protocol: RBAC, information-flow/taint control, rug-pull detection, semantic WAF/DLP, macaroons, and a tamper-evident audit log."
+version = "0.1.0rc1"
+description = "EvilGum: a scoped MCP security gateway with tool permissions, schema pins, taint controls and audit events."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.13"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Faseel" }]
 keywords = ["mcp", "security", "gateway", "llm", "ai-agents", "firewall", "prompt-injection", "taint"]
@@ -33,6 +33,7 @@ dependencies = [
 dlp = ["presidio-analyzer>=2.2.35"]
 metrics = ["prometheus-fastapi-instrumentator>=6.1.0"]
 dev = ["pytest>=7.4.3", "pytest-asyncio>=0.23.0", "fakeredis>=2.20.0", "lupa>=2.0"]
+integration = ["mcp==1.26.0", "sse-starlette==2.4.1"]
 
 [project.urls]
 Homepage = "https://github.com/Iffi-crux/evilgum"
@@ -43,3 +44,9 @@ include = ["interceptor*", "mesh*", "detector*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[project.scripts]
+evilgum = "interceptor.cli:main"
+
+[tool.setuptools.package-data]
+interceptor = ["assets/*.yaml", "assets/*.json"]

@@ -5,12 +5,12 @@ Every security decision is appended as a hash-chained JSONL record:
 
     hash_n = SHA256( hash_{n-1} || seq || ts || canonical(event) )
 
-Because each entry commits to the previous entry's hash, you cannot edit, delete,
-or reorder any record without breaking the chain from that point on — which
-`verify()` detects. This is the "immutable / tamper-evident log" enterprise and
-SOC 2 require. Ship the file to a WORM bucket / SIEM for off-box durability.
+Each entry commits to the preceding hash. Verification detects internal edits,
+gaps and reordering. This unkeyed local chain cannot prove completeness or detect
+suffix truncation / an entirely rewritten chain without a trusted external head.
+Ship checkpoints to independently protected storage for that stronger guarantee.
 
-Append is best-effort and MUST NOT break a request: callers wrap it in try/except.
+Production requires a durable forward-intent append before upstream execution.
 """
 from __future__ import annotations
 
@@ -41,6 +41,8 @@ class AuditLog:
 
     def _resume(self):
         prev, seq = GENESIS, 0
+        if os.path.exists(self.path) and not self.verify(self.path)["ok"]:
+            raise RuntimeError("Audit integrity check failed; refusing to append")
         try:
             with open(self.path, "r") as f:
                 for line in f:
@@ -63,6 +65,8 @@ class AuditLog:
             record = {"seq": seq, "ts": ts, "prev": self._prev, "hash": digest, "event": event}
             with open(self.path, "a") as f:
                 f.write(_canonical(record) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
             self._prev, self._seq = digest, seq + 1
             if self.forward:
                 try:
@@ -81,6 +85,8 @@ class AuditLog:
                 if not line:
                     continue
                 rec = json.loads(line)
+                if rec.get("seq") != count:
+                    return {"ok": False, "broken_at_line": lineno, "reason": "sequence mismatch"}
                 if rec.get("prev") != prev:
                     return {"ok": False, "broken_at_line": lineno, "reason": "prev-hash mismatch"}
                 recomputed = hashlib.sha256(

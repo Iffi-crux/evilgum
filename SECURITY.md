@@ -1,38 +1,13 @@
-# Security Policy
+# Security policy
 
-## Reporting a vulnerability
+0.1.0rc1 is a developer beta candidate, not a generally available production release. The supported test/deployment profile is one isolated customer, one worker, local SQLite storage, Linux amd64/Python 3.11, MCP 2025-11-25 stateless JSON HTTP. See MCP-COMPATIBILITY.md and PHASE1-OPERATIONS.md. Other versions have no maintenance promise from this candidate.
 
-Please **do not** open a public issue for security vulnerabilities.
-Email **info@faseel.app** (or visit [faseel.app/evilgum](https://faseel.app/evilgum)) with details and steps to reproduce. We aim to acknowledge within 72 hours and to coordinate a fix and disclosure timeline with you.
+Report vulnerabilities privately to info@faseel.app, the project's existing contact. Do not post credentials or exploit details in public issues. Contact delivery and response commitments have not been verified during release preparation.
 
-## Security posture (honest)
+Local tests and synthetic recovery drills are engineering evidence, not independent security certification. Historical benchmark percentages are not claims for this release. No third-party penetration test was performed here.
 
-EvilGum is a security control, so we hold ourselves to the standard we sell.
+Production requires trusted asymmetric JWT issuance with the deployment eg_epoch claim, reviewed tenant grants and pins, coarse taint, enforce mode, DLP, verified upstream TLS, durable local storage and one worker. Configure TLS ingress before exposing remote traffic. Never expose admin/metrics without the intended access controls.
 
-**Externally validated / measured on this codebase:**
-- NVIDIA garak agent-hijack scan: **0% Attack Success Rate** (~15,000 attempts, 12/12 probes PASS).
-- Attack corpus: **100% blocked** (56 payloads, OWASP-mapped).
-- Robustness: **0 unhandled errors** across 3,000 fuzzed requests.
-- **86%** line+branch coverage across **81** adversarial tests.
+Known limits: pins compare declared metadata, not implementation; changes are detected when listed. Coarse taint is conservative and persists until a fresh trusted session. Optional value mode has a known re-encoding limitation and is disallowed in production. Audit chaining alone cannot detect full rewrites or suffix removal without an external checkpoint. No shared SaaS, HA, broad MCP host compatibility or universal exfiltration prevention claim is made.
 
-**Standards mapping:** OWASP MCP Top 10, OWASP API Security Top 10 (2023), OWASP Top 10 for Agentic Applications.
-
-**Not yet done (do not deploy to regulated production without these):**
-- Third-party penetration test (required for SOC 2 / enterprise).
-- Multi-tenant isolation hardening.
-- Published latency/throughput envelope on production infrastructure.
-
-## Hard requirements before production
-
-The gateway **refuses to start** on unsafe config, but you must supply:
-- `GATEWAY_JWT_PUBLIC_KEY` from a real IdP (RS256/ES256) — never the dev HS256 secret.
-- `MACAROON_ROOT_KEY` (≥32 bytes) and mTLS certs from a secret manager; `UPSTREAM_TLS_VERIFY=true`.
-- `DATABASE_URL` pointing at Postgres (not SQLite) for RBAC + the audit log at scale.
-
-## Reproducing our claims
-
-```bash
-python bench.py
-python -m coverage run --branch -m pytest && python -m coverage report
-garak -m rest -G benchmarks/garak_mcp_rest.json -p latentinjection,promptinject
-```
+Track public non-sensitive defects at https://github.com/Iffi-crux/evilgum/issues. Security fixes belong in the open core and are not reserved for enterprise.

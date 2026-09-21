@@ -1,0 +1,7 @@
+-r runtime.in
+pytest==9.1.1
+pytest-asyncio==1.4.0
+fakeredis==2.38.0
+lupa==2.8
+mcp==1.26.0
+sse-starlette==2.4.1

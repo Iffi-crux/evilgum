@@ -48,6 +48,20 @@ class SchemaLock:
         self.locks = dict(locks or {})
         self.enforce = enforce
         self.learn = learn
+        self.verified: set[str] = set()
+        self.quarantined: set[str] = set()
+        self.durable_state = None
+
+    def bind_state(self, state):
+        self.durable_state = state
+        self.quarantined.update(state.quarantined())
+
+    def check_call(self, name: str) -> Verdict:
+        if name in self.quarantined:
+            return Verdict(False, f"tool '{name}' is quarantined; operator review and restart required")
+        if self.enforce and (name not in self.locks or name not in self.verified):
+            return Verdict(False, f"tool '{name}' requires an approved pin and a matching tools/list observation")
+        return Verdict(True)
 
     @classmethod
     def load(cls, path: str, enforce: bool = True, learn: bool = False) -> "SchemaLock":
@@ -62,19 +76,29 @@ class SchemaLock:
 
     def check(self, tool: Dict[str, Any]) -> Verdict:
         name = tool.get("name")
+        if not isinstance(name, str) or not name:
+            return Verdict(False, "invalid tool name")
+        if name in self.quarantined:
+            return Verdict(False, f"tool '{name}' is quarantined; operator review and restart required")
         computed = compute_hash(tool)
         expected = self.locks.get(name)
 
         if expected is None:
             if self.learn:
                 self.locks[name] = computed
+                self.verified.add(name)
                 return Verdict(ok=True, newly_pinned=True)
             if self.enforce:
                 return Verdict(ok=False, reason=f"tool '{name}' is not pinned in the schema lock")
             return Verdict(ok=True)
 
         if computed != expected:
+            self.quarantined.add(name)
+            self.verified.discard(name)
+            if self.durable_state is not None:
+                self.durable_state.quarantine(name)
             return Verdict(ok=False, reason=f"schema drift on '{name}' (expected {expected[:12]}…, got {computed[:12]}…)")
+        self.verified.add(name)
         return Verdict(ok=True)
 
     def export(self) -> Dict[str, Dict[str, str]]:

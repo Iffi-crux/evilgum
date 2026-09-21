@@ -110,7 +110,7 @@ def test_rbac06_case_variant_tool_denied(build):
 @pytest.mark.asyncio
 async def test_rbac07_cache_invalidation():
     store = {"a": ["read_file"]}
-    async def loader(aid): return store.get(aid)
+    async def loader(tenant_id, aid): return store.get(aid)
     eng = RbacEngine(loader, cache_ttl=999)
     assert await eng.is_authorized("a", "read_file") is True
     store["a"] = []                       # revoke

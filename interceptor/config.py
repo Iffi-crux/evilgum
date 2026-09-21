@@ -104,6 +104,11 @@ class PolicyConfig:
 
     # --- protocol (AG-19) ---
     method_allowlist_enforce: bool = True
+    mcp_allowed_origins: Set[str] = field(default_factory=set)
+    mcp_max_response_bytes: int = 1_048_576
+    mcp_upstream_timeout_seconds: float = 30.0
+    audit_required: bool = False   # production builder enables durable intent logging
+    legacy_rpc_enabled: bool = True
 
     # --- enforcement mode (OBS/ROLLOUT) ---
     # "enforce": block on any denial (default). "shadow": compute every decision
@@ -204,6 +209,11 @@ def load_policy(config_path: str = "config.yaml") -> PolicyConfig:
     cfg.taint_mode = os.environ.get("TAINT_MODE", cfg.taint_mode)
     cfg.dlp_egress_enabled = _bool_env("DLP_EGRESS_ENABLED", cfg.dlp_egress_enabled)
     cfg.method_allowlist_enforce = _bool_env("METHOD_ALLOWLIST_ENFORCE", cfg.method_allowlist_enforce)
+    cfg.mcp_allowed_origins = {origin.strip() for origin in os.environ.get("MCP_ALLOWED_ORIGINS", "").split(",") if origin.strip()}
+    cfg.mcp_max_response_bytes = int(os.environ.get("MCP_MAX_RESPONSE_BYTES", cfg.mcp_max_response_bytes))
+    cfg.mcp_upstream_timeout_seconds = float(os.environ.get("MCP_UPSTREAM_TIMEOUT_SECONDS", cfg.mcp_upstream_timeout_seconds))
+    if cfg.mcp_max_response_bytes <= 0 or cfg.mcp_upstream_timeout_seconds <= 0:
+        raise ValueError("MCP response limit and timeout must be positive")
     cfg.enforcement_mode = os.environ.get("GATEWAY_ENFORCEMENT_MODE", cfg.enforcement_mode).lower()
     cfg.metrics_enabled = _bool_env("GATEWAY_METRICS_ENABLED", cfg.metrics_enabled)
 

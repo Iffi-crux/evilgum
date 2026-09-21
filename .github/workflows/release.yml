@@ -1,0 +1,61 @@
+name: Release candidate verification
+on:
+  workflow_dispatch:
+  push:
+    branches: ["release/**"]
+  pull_request:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_DATE_EPOCH: "1789948800"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build from locked tooling
+        run: |
+          python -m pip install --require-hashes -r locks/build.lock
+          python -m build --no-isolation
+          python scripts/verify_artifacts.py
+          python scripts/verify_rebuild.py
+          python scripts/package_quickstart.py
+      - name: Install wheel in a fresh environment
+        run: |
+          python -m venv /tmp/evilgum-test
+          /tmp/evilgum-test/bin/pip install --require-hashes -r locks/test-py311-linux.lock
+          /tmp/evilgum-test/bin/pip install --no-deps dist/*.whl
+          /tmp/evilgum-test/bin/pip check
+          mkdir -p /tmp/evilgum-check
+          cp -r tests /tmp/evilgum-check/
+          cp scripts/check_installed.py /tmp/evilgum-check/
+          cd /tmp/evilgum-check
+          /tmp/evilgum-test/bin/python check_installed.py
+          /tmp/evilgum-test/bin/python -m pytest -q -o asyncio_mode=auto --junitxml="$GITHUB_WORKSPACE/dist/tests.xml"
+      - name: Container and recovery verification
+        run: |
+          docker build --platform linux/amd64 -t evilgum:0.1.0rc1 .
+          python -m zipfile -e dist/evilgum-0.1.0rc1-quickstart.zip /tmp/evilgum-quickstart
+          EVILGUM_TEST_IMAGE=evilgum:0.1.0rc1 /tmp/evilgum-test/bin/python /tmp/evilgum-quickstart/evilgum-0.1.0rc1-quickstart/scripts/verify_phase1.py
+          cp /tmp/evilgum-quickstart/evilgum-0.1.0rc1-quickstart/.phase1-runtime/*/report.json dist/container-recovery.json
+          docker run --rm --user 0 -v "$PWD/scripts:/scripts:ro" -v "$PWD/dist:/out" evilgum:0.1.0rc1 python /scripts/dependency_inventory.py /out/python-dependencies.json
+      - name: Publish verified candidate container
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag evilgum:0.1.0rc1 ghcr.io/iffi-crux/evilgum:0.1.0rc1
+          docker push ghcr.io/iffi-crux/evilgum:0.1.0rc1
+          docker image inspect ghcr.io/iffi-crux/evilgum:0.1.0rc1 --format '{{json .RepoDigests}}' > dist/container-digests.json
+          docker logout ghcr.io
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evilgum-0.1.0rc1-evidence
+          path: dist/

@@ -23,7 +23,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 import time
 
 from fastapi import FastAPI, Request, Depends, HTTPException
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from interceptor.config import PolicyConfig
 from interceptor.auth import JwtVerifier, Principal, AuthError, require_admin
@@ -32,6 +32,7 @@ from interceptor.rbac import RbacEngine
 from interceptor.rate_limiter import RedisTokenBucketRateLimiter
 from interceptor.schema_lock import SchemaLock
 from interceptor.egress_guard import EgressGuard
+from interceptor.mcp_transport import validate_headers, validate_message, forward_json
 from mesh.semantic_waf import SemanticWaf
 from mesh.sidecar import MacaroonEvaluator, SecurityError
 
@@ -52,9 +53,6 @@ E_UPSTREAM = -32603
 # AG-19: only known JSON-RPC / MCP methods are mediated; anything else fails closed.
 KNOWN_METHODS = {
     "initialize", "ping", "tools/list", "tools/call",
-    "resources/list", "resources/read", "resources/templates/list",
-    "prompts/list", "prompts/get", "completion/complete",
-    "logging/setLevel", "roots/list",
     "notifications/initialized", "notifications/cancelled",
 }
 
@@ -79,6 +77,7 @@ class Deps:
     role_invalidate: Optional[Callable[[str], None]] = None
     audit: Any = None                          # AuditLog instance (tamper-evident log)
     metrics: Any = None                        # MetricsCollector (optional)
+    readiness_check: Any = None
 
 
 async def _read_capped_body(request: Request, max_bytes: int) -> bytes:
@@ -160,11 +159,12 @@ def create_app(cfg: PolicyConfig, deps: Deps, lifespan=None) -> FastAPI:
 
     # ---- admin control plane, gated by the admin SCOPE (not a username) ----
     if deps.admin_router is not None:
-        async def admin_guard(principal: Principal = Depends(current_principal)):
+        async def admin_guard(request: Request, principal: Principal = Depends(current_principal)):
             try:
                 require_admin(principal, cfg)
             except AuthError as e:
                 raise HTTPException(status_code=403, detail=str(e))
+            request.state.principal = principal
             return principal
         app.include_router(deps.admin_router, dependencies=[Depends(admin_guard)])
 
@@ -203,7 +203,7 @@ def create_app(cfg: PolicyConfig, deps: Deps, lifespan=None) -> FastAPI:
 
         # RBAC — fail CLOSED if the role store is unreachable (AG-CHAOS).
         try:
-            authed = await deps.rbac.is_authorized(principal.agent_id, tool_name)
+            authed = await deps.rbac.is_authorized(principal.agent_id, tool_name, tenant_id=principal.tenant_id)
         except Exception as exc:
             logger.error("RBAC store down, failing closed: %s", exc)
             record("deny_rbac", principal, tool_name, E_RBAC, "store unavailable")
@@ -216,10 +216,17 @@ def create_app(cfg: PolicyConfig, deps: Deps, lifespan=None) -> FastAPI:
             d = blocks(fault(req_id, E_RBAC, "ANTI_GRAVITY_INTERCEPT: Unauthorized Tool Access."))
             if d is not None:
                 return d
+        verdict = deps.schema_lock.check_call(tool_name)
+        if not verdict.ok:
+            record("deny_schema", principal, tool_name, E_SCHEMA, verdict.reason)
+            return blocks(fault(req_id, E_SCHEMA, verdict.reason))
         return None
 
     @app.post("/rpc")
+    @app.post("/mcp")
     async def handle_rpc(request: Request, principal: Principal = Depends(current_principal)):
+        if request.url.path == "/rpc" and not cfg.legacy_rpc_enabled:
+            raise HTTPException(404, "Use the supported /mcp endpoint")
         # Defensive catch-all: no malformed input may produce an unhandled 500 or leak a
         # stack trace. HTTPException (413/401) passes through; anything else fails closed.
         t0 = time.perf_counter()
@@ -238,6 +245,9 @@ def create_app(cfg: PolicyConfig, deps: Deps, lifespan=None) -> FastAPI:
                     pass
 
     async def _rpc_impl(request: Request, principal: Principal):
+        standard_mcp = request.url.path == "/mcp"
+        if standard_mcp:
+            validate_headers(request, cfg)
         session_id = principal.scope_id      # tenant-scoped: taint + rate-limit never collide across tenants
         if deps.metrics is not None:
             deps.metrics.request()
@@ -267,6 +277,9 @@ def create_app(cfg: PolicyConfig, deps: Deps, lifespan=None) -> FastAPI:
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
             return JSONResponse(fault(None, E_PARSE, "Parse error"), status_code=400)
 
+        if standard_mcp:
+            validate_message(request, parsed)
+
         # AG-02: normalize single object AND batch array; validate every envelope.
         is_batch = isinstance(parsed, list)
         elements: List[Any] = parsed if is_batch else [parsed]
@@ -274,11 +287,12 @@ def create_app(cfg: PolicyConfig, deps: Deps, lifespan=None) -> FastAPI:
             return JSONResponse(fault(None, E_INVALID, "Invalid JSON-RPC envelope"), status_code=400)
 
         # AG-19: reject unknown methods (fail closed) so nothing unmediated is forwarded.
-        if cfg.method_allowlist_enforce:
-            for el in elements:
-                if el.get("method") not in KNOWN_METHODS:
-                    return JSONResponse(fault(el.get("id"), E_INVALID,
-                        f"ANTI_GRAVITY_INTERCEPT: method '{el.get('method')}' not permitted."), status_code=400)
+        # A protocol scope boundary, including in shadow/off mode. Unimplemented
+        # resource/prompt policy must never be advertised as protected traffic.
+        for el in elements:
+            if el.get("method") not in KNOWN_METHODS:
+                return JSONResponse(fault(el.get("id"), E_INVALID,
+                    f"ANTI_GRAVITY_INTERCEPT: method '{el.get('method')}' not permitted."), status_code=400)
 
         macaroon_token = request.headers.get("x-mcp-macaroon")
 
@@ -319,12 +333,29 @@ def create_app(cfg: PolicyConfig, deps: Deps, lifespan=None) -> FastAPI:
                     return JSONResponse(d)
 
         # Forward upstream over verified mTLS (AG-03). Payload is unchanged (AG-08).
+        if cfg.audit_required:
+            try:
+                if deps.audit is None:
+                    raise RuntimeError("Audit store missing")
+                deps.audit.append({"outcome": "forward_intent", "tenant": principal.tenant_id,
+                    "agent": principal.agent_id, "session": principal.session_id,
+                    "methods": [el["method"] for el in elements]})
+            except Exception:
+                return JSONResponse(fault(None, E_UPSTREAM, "Audit storage unavailable; request not forwarded."), status_code=503)
         try:
-            upstream_resp = await deps.http_client.post(cfg.upstream_url, json=parsed)
-            upstream_resp.raise_for_status()
-            rpc_resp = upstream_resp.json()
+            if standard_mcp:
+                rpc_resp = await forward_json(deps.http_client, cfg, parsed)
+                if rpc_resp is None:
+                    return Response(status_code=202)
+            else:
+                upstream_resp = await deps.http_client.post(cfg.upstream_url, json=parsed)
+                upstream_resp.raise_for_status()
+                rpc_resp = upstream_resp.json()
         except Exception as exc:
             logger.error("Upstream failed: %s", exc)
+            if standard_mcp:
+                return JSONResponse(fault(parsed.get("id"), E_UPSTREAM,
+                    "Upstream failed or is incompatible with the stateless JSON MCP profile."), status_code=502)
             return JSONResponse(fault(None, E_UPSTREAM, "ANTI_GRAVITY_INTERCEPT: Upstream MCP server unreachable."))
 
         # Post-process (handle batch or single response symmetrically).
@@ -341,9 +372,22 @@ def create_app(cfg: PolicyConfig, deps: Deps, lifespan=None) -> FastAPI:
                     if r and isinstance(r, dict) and "result" in r:
                         await deps.taint.capture_source_output(session_id, r["result"])
 
-        out = [await self_post_process(el, principal, deps, cfg, dispatch_alert) for el in resp_list]
-        record("allow", principal, ",".join(_params(e).get("name", "") for e in tool_calls) or None, 0)
+        out = []
+        for response in resp_list:
+            method = next((el["method"] for el in elements
+                           if "id" in el and isinstance(response, dict)
+                           and el["id"] == response.get("id")), None)
+            out.append(await self_post_process(response, principal, deps, cfg, dispatch_alert, method))
+        response_error = next((r["error"] for r in out if isinstance(r, dict) and "error" in r), None)
+        record("response_error" if response_error else "allow", principal,
+               ",".join(_params(e).get("name", "") for e in tool_calls) or None,
+               response_error.get("code", E_UPSTREAM) if response_error else 0)
         return JSONResponse(out if isinstance(rpc_resp, list) else out[0])
+
+    @app.api_route("/mcp", methods=["GET", "DELETE"])
+    async def unsupported_stream(request: Request, principal: Principal = Depends(current_principal)):
+        validate_headers(request, cfg)
+        return Response(status_code=405, headers={"Allow": "POST"})
 
     # ---- operational endpoints (HA + observability), all unauthenticated ----
     @app.get("/healthz")
@@ -363,6 +407,9 @@ def create_app(cfg: PolicyConfig, deps: Deps, lifespan=None) -> FastAPI:
             if rc is not None and hasattr(rc, "ping"):
                 await rc.ping()
             checks["redis"] = "ok"
+            if deps.readiness_check:
+                await deps.readiness_check()
+                checks["durable_state"] = "ok"
         except Exception as exc:
             ok = False
             checks["redis"] = f"unreachable: {exc.__class__.__name__}"
@@ -378,7 +425,7 @@ def create_app(cfg: PolicyConfig, deps: Deps, lifespan=None) -> FastAPI:
 
 
 async def self_post_process(rpc_resp: Dict[str, Any], principal: Principal, deps: Deps,
-                            cfg: PolicyConfig, dispatch_alert) -> Dict[str, Any]:
+                            cfg: PolicyConfig, dispatch_alert, method: Optional[str] = None) -> Dict[str, Any]:
     if not isinstance(rpc_resp, dict):
         return rpc_resp
     if "error" in rpc_resp:
@@ -386,17 +433,26 @@ async def self_post_process(rpc_resp: Dict[str, Any], principal: Principal, deps
 
     result = rpc_resp.get("result")
     # tools/list: schema-lock (AG-07) + RBAC filtering, in a single pass.
-    if isinstance(result, dict) and "tools" in result:
-        allowed = await deps.rbac.allowed_tools(principal.agent_id)
+    if method == "tools/list":
+        if not isinstance(result, dict) or not isinstance(result.get("tools"), list):
+            return fault(rpc_resp.get("id"), E_SCHEMA, "Invalid upstream tool listing")
+        allowed = await deps.rbac.allowed_tools(principal.agent_id, tenant_id=principal.tenant_id)
         filtered = []
+        denial = None
         for tool in result["tools"]:
+            if not isinstance(tool, dict):
+                denial = fault(rpc_resp.get("id"), E_SCHEMA, "Invalid upstream tool definition")
+                continue
             verdict = deps.schema_lock.check(tool)
             if not verdict.ok:
                 dispatch_alert("SchemaDriftRugPull", verdict.reason)
-                return fault(rpc_resp.get("id"), E_SCHEMA, f"ANTI_GRAVITY_INTERCEPT: {verdict.reason}")
+                denial = fault(rpc_resp.get("id"), E_SCHEMA, f"ANTI_GRAVITY_INTERCEPT: {verdict.reason}")
+                continue
             name = tool.get("name")
             if "*" in allowed or name in allowed:
                 filtered.append(tool)
+        if denial is not None:
+            return denial
         result["tools"] = filtered
         return rpc_resp
 

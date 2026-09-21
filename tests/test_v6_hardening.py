@@ -139,7 +139,7 @@ def test_ag05_fetch_url_is_egress_sink_blocked_after_taint(build):
 
 
 def test_ag05_unclassified_tool_default_denied_after_taint(build):
-    app, deps, up, priv = build(roles={"agent-1": ["read_file", "mystery_tool"]})
+    app, deps, up, priv = build(roles={"agent-1": ["read_file", "mystery_tool"]}, enforce_lock=False)
     tok = make_token(priv, sub="agent-1", sid="s2")
     with TestClient(app) as c:
         call(c, tok, {**TOOLS_CALL, "params": {"name": "read_file", "arguments": {}}})
