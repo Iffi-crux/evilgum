@@ -1,0 +1,37 @@
+name: Verify anonymous published release
+on:
+  push:
+    branches: ["verify/v0.1.0rc1"]
+permissions:
+  contents: read
+jobs:
+  anonymous-pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      IMAGE: ghcr.io/iffi-crux/evilgum@sha256:e8411a910caf6d812a39b715fb331169618fc19a2b2ae22e1919fd3e345b100f
+    steps:
+      - name: Pull exact published image without login
+        run: |
+          mkdir -p /tmp/empty-docker-config
+          docker --config /tmp/empty-docker-config pull "$IMAGE"
+          docker image inspect "$IMAGE" --format '{{json .RepoDigests}}' > container-digests.json
+          docker run --rm "$IMAGE" evilgum --version > installed-version.txt
+          docker run --rm "$IMAGE" python -c "from mesh.semantic_waf import PresidioAnalyzer; assert PresidioAnalyzer().find('4111111111111111'); print('PASS real DLP from anonymously pulled image')"
+      - name: Record result
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          expected = os.environ['IMAGE']
+          assert expected in json.loads(Path('container-digests.json').read_text())
+          assert Path('installed-version.txt').read_text().strip() == '0.1.0rc1'
+          Path('anonymous-container-verification.json').write_text(json.dumps({'container_pull':'passed','credentials_used':False,'environment':'fresh GitHub-hosted Ubuntu runner','digest':expected,'installed_version':'0.1.0rc1','real_DLP_check':'passed'},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anonymous-container-verification
+          path: |
+            anonymous-container-verification.json
+            container-digests.json
+            installed-version.txt
