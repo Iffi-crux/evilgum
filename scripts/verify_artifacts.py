@@ -2,13 +2,15 @@
 import hashlib
 import json
 from pathlib import Path
+import tomllib
 import tarfile
 import zipfile
 
 root = Path(__file__).resolve().parents[1]
 artifacts = root / "dist"
 report = []
-for name in ("evilgum-0.1.0rc1-py3-none-any.whl", "evilgum-0.1.0rc1.tar.gz"):
+version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+for name in (f"evilgum-{version}-py3-none-any.whl", f"evilgum-{version}.tar.gz"):
     path = artifacts / name
     if name.endswith(".whl"):
         with zipfile.ZipFile(path) as archive:

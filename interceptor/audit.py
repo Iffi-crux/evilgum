@@ -78,22 +78,27 @@ class AuditLog:
     @staticmethod
     def verify(path: str) -> Dict[str, Any]:
         """Recompute the chain; report the first break if any."""
-        prev, count = GENESIS, 0
         with open(path, "r") as f:
-            for lineno, line in enumerate(f, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                rec = json.loads(line)
-                if rec.get("seq") != count:
-                    return {"ok": False, "broken_at_line": lineno, "reason": "sequence mismatch"}
-                if rec.get("prev") != prev:
-                    return {"ok": False, "broken_at_line": lineno, "reason": "prev-hash mismatch"}
-                recomputed = hashlib.sha256(
-                    (prev + str(rec["seq"]) + repr(rec["ts"]) + _canonical(rec["event"])).encode("utf-8")
-                ).hexdigest()
-                if recomputed != rec.get("hash"):
-                    return {"ok": False, "broken_at_line": lineno, "reason": "hash mismatch (record altered)"}
-                prev = rec["hash"]
-                count += 1
+            return AuditLog.verify_lines(f)
+
+    @staticmethod
+    def verify_lines(lines) -> Dict[str, Any]:
+        """Verify exactly the supplied snapshot; shared by operational reports."""
+        prev, count = GENESIS, 0
+        for lineno, line in enumerate(lines, 1):
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            if rec.get("seq") != count:
+                return {"ok": False, "broken_at_line": lineno, "reason": "sequence mismatch"}
+            if rec.get("prev") != prev:
+                return {"ok": False, "broken_at_line": lineno, "reason": "prev-hash mismatch"}
+            recomputed = hashlib.sha256(
+                (prev + str(rec["seq"]) + repr(rec["ts"]) + _canonical(rec["event"])).encode("utf-8")
+            ).hexdigest()
+            if recomputed != rec.get("hash"):
+                return {"ok": False, "broken_at_line": lineno, "reason": "hash mismatch (record altered)"}
+            prev = rec["hash"]
+            count += 1
         return {"ok": True, "records": count, "head": prev}

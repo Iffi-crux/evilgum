@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "evilgum"
-version = "0.1.0rc1"
+version = "0.1.0rc2"
 description = "EvilGum: a scoped MCP security gateway with tool permissions, schema pins, taint controls and audit events."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
