@@ -50,8 +50,11 @@ def _macaroon_root() -> bytes:
     return raw
 
 
-def build_production_app():
+def build_production_app(*, verifier_factory=JwtVerifier):
     cfg = load_policy(os.environ.get("CONFIG_PATH", "config.yaml"))
+    # Construct identity before opening resources; optional add-ons supply the
+    # same verify(token) contract without replacing the gateway enforcement path.
+    verifier = verifier_factory(cfg)
     root_key = _macaroon_root()
     if cfg.env == "prod":
         if cfg.taint_mode != "coarse" or cfg.enforcement_mode != "enforce":
@@ -108,7 +111,7 @@ def build_production_app():
             logger.error("alert dispatch failed: %s", e)
 
     deps = Deps(
-        verifier=JwtVerifier(cfg),
+        verifier=verifier,
         taint=DurableTaintEngine(cfg, state, redis_client=r_taint),
         rbac=rbac,
         rate_limiter=RedisTokenBucketRateLimiter(100, 50.0, redis_client=r_rate),

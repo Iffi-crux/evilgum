@@ -54,7 +54,7 @@ FIX = ROOT / ".phase1-runtime" / RUN
 
 IMAGE = os.environ.get("EVILGUM_TEST_IMAGE", "evilgum-phase1:local")
 
-REDIS_IMAGE = "redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2"
+REDIS_IMAGE = os.environ.get("EVILGUM_REDIS_IMAGE", "redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2")
 
 DOCKER = ["wsl", "-d", "Ubuntu", "--", "docker"] if os.name == "nt" else ["docker"]
 
@@ -280,7 +280,7 @@ def run():
 
         return jwt.encode({"sub":"test-agent","scope":"mcp.admin","sid":"test-session","tenant":"default","iat":now,"exp":now+3600,"iss":"phase1-test","aud":"phase1-test","eg_epoch":epoch},key,algorithm="RS256")
 
-    name=RUN+"-gateway";port=gateway(name,RUN+"-data");tok=token(init["epoch"])
+    name=RUN+"-gateway";port=gateway(name,RUN+"-data",os.environ.get("EVILGUM_UPGRADE_FROM_IMAGE",IMAGE));tok=token(init["epoch"])
 
     def rpc(method, params=None, port_=None, token_=None):
 
@@ -305,6 +305,17 @@ def run():
     assert rpc("tools/call",{"name":"http_post","arguments":{}})[1]["error"]["code"]==-32001
 
     mark("real Presidio redaction and durable coarse-taint denial")
+
+    if os.environ.get("EVILGUM_UPGRADE_FROM_IMAGE"):
+        docker("stop", name)
+        name = RUN + "-upgraded"
+        port = gateway(name, RUN + "-data", IMAGE)
+        assert request(port,"/admin/roles/test-agent",tok)[1]["allowed_tools"] == ["calculate_math","read_file","http_post"]
+        assert "result" in rpc("tools/list")[1]
+        assert rpc("tools/call",{"name":"http_post","arguments":{}})[1]["error"]["code"] == -32001
+        report["upgrade_from_image"] = os.environ["EVILGUM_UPGRADE_FROM_IMAGE"]
+        mark("upgrade from previous core image retains roles, audit and durable taint")
+
 
     docker("stop",redis_name)
 

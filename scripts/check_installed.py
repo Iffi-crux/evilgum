@@ -1,5 +1,6 @@
 """Run with the candidate wheel installed, from OUTSIDE the source checkout."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -8,7 +9,7 @@ from importlib.metadata import version
 import interceptor
 
 assert "site-packages" in str(Path(interceptor.__file__).resolve()), interceptor.__file__
-assert version("evilgum") == "0.1.0rc1"
+assert version("evilgum") == os.environ["EVILGUM_EXPECTED_VERSION"]
 with tempfile.TemporaryDirectory() as directory:
     output = Path(directory) / "deployment"
     subprocess.run([sys.executable, "-m", "interceptor.cli", "init-config", "--directory", str(output)], check=True)

@@ -3,13 +3,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import tomllib
 import subprocess
 import sys
 import tarfile
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-name = "evilgum-0.1.0rc1"
+name = "evilgum-" + tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
 expected = (root / "dist" / (name + "-py3-none-any.whl")).read_bytes()
 with tempfile.TemporaryDirectory() as work:
     with tarfile.open(root / "dist" / (name + ".tar.gz")) as archive:
